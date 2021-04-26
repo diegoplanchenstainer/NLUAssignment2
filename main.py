@@ -63,7 +63,7 @@ def groupFrequencyCount(groupEntities):
 
 def classAndTotAccuracy(hyps, refs, entityList):
     accuracyDict = {}
-    countDict = {'total': [0, 0]}
+    countDict = {'TOTAL': [0, 0]}
 
     if len(hyps) != len(refs):
         raise ValueError(
@@ -72,9 +72,9 @@ def classAndTotAccuracy(hyps, refs, entityList):
         for i, sent in enumerate(hyps):
             for j, tHyps in enumerate(sent):
                 key = tHyps[1]
-                countDict['total'][1] += 1
+                countDict['TOTAL'][1] += 1
                 if tHyps == refs[i][j]:
-                    countDict['total'][0] += 1
+                    countDict['TOTAL'][0] += 1
                 if key in countDict:
                     countDict[key][1] += 1
                     if key == refs[i][j][1]:
@@ -122,7 +122,6 @@ spacyToConllMap = {
 nlp = spacy.load('en_core_web_sm')
 
 trainData = read_corpus_conll('data/conll2003/train.txt', ' ')[:500]
-testData = read_corpus_conll('data/conll2003/test.txt', ' ')[:500]
 
 docList = loadTokenizedListInSpacy(trainData)
 
@@ -142,15 +141,15 @@ for doc in docList:
 # possible ent_type of Conll
 entitySet = get_chunks('data/conll2003/train.txt', fs=' ')
 
-# 1.1
+# 1.1 report token-level performance (per class and total)
 accuracyDict = classAndTotAccuracy(hyps, refs, entitySet)
 print('Question 1.1: Evaluate accuracy\n')
 
 for key in accuracyDict.keys():
-    print('{}: {}'.format(key, accuracyDict[key]))
+    print('{}:\t{:.3f}'.format(key, accuracyDict[key]))
 print('\n')
 
-# 1.2
+# 1.2 report CoNLL chunk-level performance (per class and total)
 results = evaluate(refs, hyps)
 
 pd_tbl = pd.DataFrame().from_dict(results, orient='index')
@@ -158,7 +157,7 @@ pd_tbl.round(decimals=3)
 print('Question 1.2: Evaluate chunk-level performances\n')
 print('{}\n'.format(pd_tbl))
 
-# 2
+# 2 Grouping of Entities
 print('Question 2: Group entities\n')
 
 filteredEntityGroups = []
@@ -168,7 +167,7 @@ for doc in docList:
 
 frequencyDict = groupFrequencyCount(filteredEntityGroups)
 for i, key in enumerate(frequencyDict.keys()):
-    if i < 15:
+    if i < 15:  # show only the 15 most relevant combinations
         print('{}: {}'.format(key, frequencyDict[key]))
     else:
         break
