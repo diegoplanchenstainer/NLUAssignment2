@@ -15,9 +15,35 @@ def loadTokenizedListInSpacy(data):
     return docList
 
 
+def classAndTotAccuracy(hyps, refs):
+    accuracyDict = {}
+    countDict = {'TOTAL': [0, 0]}
+
+    if len(hyps) != len(refs):
+        raise ValueError(
+            "Size Mismatch: ref: {} & hyp: {}".format(len(ref), len(hyp)))
+    else:
+        for i, sent in enumerate(hyps):
+            for j, tHyps in enumerate(sent):
+                key = tHyps[1]
+                countDict['TOTAL'][1] += 1
+                if tHyps == refs[i][j]:
+                    countDict['TOTAL'][0] += 1
+                if key in countDict:
+                    countDict[key][1] += 1
+                    if key == refs[i][j][1]:
+                        countDict[key][0] += 1
+                else:
+                    countDict[key] = [1, 1]
+
+        for key in countDict.keys():
+            accuracyDict[key] = countDict[key][0]/countDict[key][1]
+    return accuracyDict
+
+
 def extractGroupEntity(doc):
 
-    nounChunkList = list(doc.noun_chunks)
+    # nounChunkList = list(doc.noun_chunks)
     entityList = doc.ents
     nounChunkEnts = [span.ents for span in doc.noun_chunks]
     singleEntList = []
@@ -61,32 +87,6 @@ def groupFrequencyCount(groupEntities):
     return frequencyDict
 
 
-def classAndTotAccuracy(hyps, refs, entityList):
-    accuracyDict = {}
-    countDict = {'TOTAL': [0, 0]}
-
-    if len(hyps) != len(refs):
-        raise ValueError(
-            "Size Mismatch: ref: {} & hyp: {}".format(len(ref), len(hyp)))
-    else:
-        for i, sent in enumerate(hyps):
-            for j, tHyps in enumerate(sent):
-                key = tHyps[1]
-                countDict['TOTAL'][1] += 1
-                if tHyps == refs[i][j]:
-                    countDict['TOTAL'][0] += 1
-                if key in countDict:
-                    countDict[key][1] += 1
-                    if key == refs[i][j][1]:
-                        countDict[key][0] += 1
-                else:
-                    countDict[key] = [1, 1]
-
-        for key in countDict.keys():
-            accuracyDict[key] = countDict[key][0]/countDict[key][1]
-    return accuracyDict
-
-
 spacyToConllMap = {
     # https://github.com/explosion/spaCy/blob/master/spacy/glossary.py
     # https://spacy.io/api/annotation#named-entities
@@ -125,7 +125,7 @@ trainData = read_corpus_conll('data/conll2003/train.txt', ' ')[:500]
 
 docList = loadTokenizedListInSpacy(trainData)
 
-refs = [[(text, iob) for text, pos, syntChunck, iob in sent]
+refs = [[(text, iob) for text, _, _, iob in sent]
         for sent in trainData]
 hyps = []
 
@@ -138,11 +138,8 @@ for doc in docList:
         tmpList.append((token.text, tmp))
     hyps.append(tmpList)
 
-# possible ent_type of Conll
-entitySet = get_chunks('data/conll2003/train.txt', fs=' ')
-
 # 1.1 report token-level performance (per class and total)
-accuracyDict = classAndTotAccuracy(hyps, refs, entitySet)
+accuracyDict = classAndTotAccuracy(hyps, refs)
 print('Question 1.1: Evaluate accuracy\n')
 
 for key in accuracyDict.keys():
@@ -167,8 +164,46 @@ for doc in docList:
 
 frequencyDict = groupFrequencyCount(filteredEntityGroups)
 for i, key in enumerate(frequencyDict.keys()):
-    if i < 15:  # show only the 15 most relevant combinations
-        print('{}: {}'.format(key, frequencyDict[key]))
-    else:
-        break
+    print('{}: {}'.format(key, frequencyDict[key]))
 print('\n')
+
+
+sentence = "Apple's Steve Jobs died in 2011 in Palo Alto, California."
+# sentence = 'The European Commission said on Thursday it disagreed with German advice to consumers to shun British lamb untill scientists determine whether mad cow disease can be transmitted to sheep.'
+
+doc = nlp(sentence)
+fixedSegList = []
+for token in doc:
+    iobEnt = token.ent_iob_
+    if token.ent_type_ != '':
+        iobEnt += '-' + token.ent_type_
+    fixedSegList.append((token.text, iobEnt))
+
+listaDiTokenAccazzo = []
+for token in doc:
+    if token.ent_type_ != '':
+        if token.dep_ == 'compound':
+            headEntType = token.head.ent_type_
+            # listaDiTokenAccazzo.append((token.head.i, token.head))
+            for children in token.head.children:
+                listaDiTokenAccazzo.append((children.i, children))
+
+            listaDiTokenAccazzo = sorted(listaDiTokenAccazzo)
+            iobB = True
+            for i, elm in listaDiTokenAccazzo:
+                if elm.ent_type_ == headEntType:
+                    if elm.dep_ == 'compound':
+                        if iobB:
+                            iob = 'B'
+                            fixedSegList[i] = (elm.text,  iob + '-' + headEntType)
+                            iobB = False
+                            iob = 'I'
+                        else:
+                            iob = 'I'
+                            fixedSegList[i] = (elm.text,  iob + '-' + headEntType)
+                    elif elm.dep_ == 'det':
+                        fixedSegList[i] = (elm.text, 'O')
+            fixedSegList[token.head.i] = (
+                token.head.text,  iob + '-' + headEntType)
+
+print(fixedSegList)
