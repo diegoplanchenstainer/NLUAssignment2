@@ -87,6 +87,65 @@ def groupFrequencyCount(groupEntities):
     return frequencyDict
 
 
+def childrenOfCompound(token):
+    childrens = []
+    fathers = []
+    headEntType = ''
+    if token.dep_ == 'compound':
+        if token.head.dep_ == 'compound':
+            headEntType = token.head.head.ent_type_
+            for father in token.head.head.children:
+                childrens.append((father.i, father))
+                for children in father.children:
+                    childrens.append((children.i, children))
+        else:
+            headEntType = token.head.ent_type_
+            for children in token.head.children:
+                childrens.append((children.i, children))
+
+    childrens = sorted(childrens) + fathers
+    return headEntType, childrens
+
+
+def fixEntitiesSegmentation(doc):
+    fixedEntitiesSeg = []
+    for token in doc:
+        iobEnt = token.ent_iob_
+        if token.ent_type_ != '':
+            iobEnt += '-' + token.ent_type_
+        fixedEntitiesSeg.append((token.text, iobEnt))
+
+    alreadyProcessedIndexList = []
+    for token in doc:
+        headChildrens = []
+        if not token.i in alreadyProcessedIndexList:
+            if token.ent_type_ != '':
+                if token.dep_ == 'compound':
+                    headEntType, headChildrens = childrenOfCompound(token)
+                    iob = 'B'
+                    if headEntType != '':
+                        for i, elm in headChildrens:
+                            if elm.dep_ == 'compound':
+                                if iob == 'B':
+                                    fixedEntitiesSeg[i] = (
+                                        elm.text,  iob + '-' + headEntType)
+                                    alreadyProcessedIndexList.append(elm.i)
+                                    iob = 'I'
+                                else:
+                                    iob = 'I'
+                                    fixedEntitiesSeg[i] = (
+                                        elm.text,  iob + '-' + headEntType)
+                                    alreadyProcessedIndexList.append(elm.i)
+                            elif elm.dep_ == 'det' or elm.dep_ == 'case':
+                                fixedEntitiesSeg[i] = (elm.text, 'O')
+                                alreadyProcessedIndexList.append(elm.i)
+
+                        fixedEntitiesSeg[token.head.i] = (
+                            token.head.text,  iob + '-' + headEntType)
+                        alreadyProcessedIndexList.append(elm.i)
+    return fixedEntitiesSeg
+
+
 spacyToConllMap = {
     # https://github.com/explosion/spaCy/blob/master/spacy/glossary.py
     # https://spacy.io/api/annotation#named-entities
@@ -121,7 +180,7 @@ spacyToConllMap = {
 
 nlp = spacy.load('en_core_web_sm')
 
-trainData = read_corpus_conll('data/conll2003/train.txt', ' ')[:500]
+trainData = read_corpus_conll('data/conll2003/train.txt', ' ')
 
 docList = loadTokenizedListInSpacy(trainData)
 
@@ -168,42 +227,33 @@ for i, key in enumerate(frequencyDict.keys()):
 print('\n')
 
 
+print('Question 3: Fix entities segmentation\n')
 sentence = "Apple's Steve Jobs died in 2011 in Palo Alto, California."
-# sentence = 'The European Commission said on Thursday it disagreed with German advice to consumers to shun British lamb untill scientists determine whether mad cow disease can be transmitted to sheep.'
-
+# sentence = "He said a proposal last month by EU Farm Commissioner Franz Fischler to ban sheep brains"
+# sentence = "Germany's representative to the European Union's veterinary committee Werner Zwingmann said on Wednesday consumers should buy sheepmeat from countries other than Britain until the scientific advice was clearer."
 doc = nlp(sentence)
-fixedSegList = []
-for token in doc:
-    iobEnt = token.ent_iob_
-    if token.ent_type_ != '':
-        iobEnt += '-' + token.ent_type_
-    fixedSegList.append((token.text, iobEnt))
+print(fixEntitiesSegmentation(doc))
 
-listaDiTokenAccazzo = []
-for token in doc:
-    if token.ent_type_ != '':
-        if token.dep_ == 'compound':
-            headEntType = token.head.ent_type_
-            # listaDiTokenAccazzo.append((token.head.i, token.head))
-            for children in token.head.children:
-                listaDiTokenAccazzo.append((children.i, children))
+fixedGroupedEntities = []
+for doc in docList:
+    fixedGroupedEntities.append(fixEntitiesSegmentation(doc))
 
-            listaDiTokenAccazzo = sorted(listaDiTokenAccazzo)
-            iobB = True
-            for i, elm in listaDiTokenAccazzo:
-                if elm.ent_type_ == headEntType:
-                    if elm.dep_ == 'compound':
-                        if iobB:
-                            iob = 'B'
-                            fixedSegList[i] = (elm.text,  iob + '-' + headEntType)
-                            iobB = False
-                            iob = 'I'
-                        else:
-                            iob = 'I'
-                            fixedSegList[i] = (elm.text,  iob + '-' + headEntType)
-                    elif elm.dep_ == 'det':
-                        fixedSegList[i] = (elm.text, 'O')
-            fixedSegList[token.head.i] = (
-                token.head.text,  iob + '-' + headEntType)
+hyps = []
+for sentence in fixedGroupedEntities:
+    tmpList = []
+    for token, iobEntType in sentence:
+        if iobEntType == 'O':
+            iob = iobEntType
+        else:
+            iob, ent = iobEntType.split('-')
+        tmp = iob
+        if iob != 'O':
+            tmp += '-' + spacyToConllMap[ent]
+        tmpList.append((token, tmp))
+    hyps.append(tmpList)
 
-print(fixedSegList)
+results = evaluate(refs, hyps)
+
+pd_tbl = pd.DataFrame().from_dict(results, orient='index')
+pd_tbl.round(decimals=3)
+print('{}\n'.format(pd_tbl))
